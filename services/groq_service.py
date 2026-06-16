@@ -8,7 +8,18 @@ client = Groq(
     api_key=os.getenv("GROQ_API_KEY")
 )
 
+def test_groq():
+    response = client.chat.completions.create(
+        model="qwen/qwen3-32b",
+        messages=[
+            {
+                "role": "user",
+                "content": "Reply with only: Groq connection successful"
+            }
+        ]
+    )
 
+    return response.choices[0].message.content
 def generate_summary(contract_text):
     response = client.chat.completions.create(
         model="qwen/qwen3-32b",

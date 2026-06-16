@@ -1,10 +1,14 @@
 import streamlit as st
 import os
 from services.pdf_service import extract_pdf_text
+from services.groq_service import test_groq
 
 
 st.title("Multi-Agent Contract Intelligence Platform")
-
+if st.button("Test Groq"):
+    result = test_groq()
+    st.success(result)
+    
 uploaded_file = st.file_uploader(
     "Upload a contract",
     type=["pdf", "docx"]

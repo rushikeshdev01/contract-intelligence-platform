@@ -34,4 +34,8 @@ if uploaded_file is not None:
             text,
             height=300
         )
-    
+    if st.button("Generate Summary"):
+        summary = generate_summary(text)
+
+        st.subheader("Contract Summary")
+        st.write(summary)

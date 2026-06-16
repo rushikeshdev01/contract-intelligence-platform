@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from services.pdf_service import extract_pdf_text
-from services.groq_service import test_groq
+from services.groq_service import test_groq, generate_summary
 
 
 st.title("Multi-Agent Contract Intelligence Platform")

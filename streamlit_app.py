@@ -31,3 +31,14 @@ if uploaded_file is not None:
         f.write(uploaded_file.getbuffer())
 
     st.success(f"File saved: {uploaded_file.name}")
+    
+    if uploaded_file.name.endswith(".pdf"):
+        text = extract_pdf_text(file_path)
+
+        st.subheader("Extracted Text")
+        st.text_area(
+            "Contract Content",
+            text,
+            height=300
+        )
+    

@@ -1,6 +1,6 @@
 import os
 import shutil
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 
 from services.extraction_service import extract_text
 from agents.graph import run_pipeline
@@ -17,7 +17,7 @@ def home():
 
 
 @app.post("/analyze")
-async def analyze_contract(file: UploadFile = File(...)):
+async def analyze_contract(file: UploadFile = File(...), position: str = Form("")):
     if not file.filename.lower().endswith((".pdf", ".docx")):
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported")
 
@@ -30,7 +30,7 @@ async def analyze_contract(file: UploadFile = File(...)):
         if not raw_text:
             raise HTTPException(status_code=422, detail="Could not extract text from file")
 
-        result = run_pipeline(raw_text)
+        result = run_pipeline(raw_text, user_position=position)
 
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])

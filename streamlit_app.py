@@ -9,12 +9,21 @@ st.caption("Upload a contract → agents extract, segment, flag risk, and summar
 
 uploaded_file = st.file_uploader("Upload a contract", type=["pdf", "docx"])
 
+position = st.selectbox(
+    "Which party are you in this contract?",
+    ["Not specified", "Customer / Buyer", "Vendor / Seller", "Employer", "Employee",
+     "Disclosing Party (NDA)", "Receiving Party (NDA)", "Landlord", "Tenant", "Other"],
+    help="Risk assessment adjusts based on whose side you're on — the same clause "
+         "can be favorable for one party and risky for the other.",
+)
+
 if uploaded_file is not None:
     if st.button("Analyze Contract", type="primary"):
         with st.spinner("Running agent pipeline (extraction → segmentation → risk → summary)..."):
             files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
+            data = {"position": position}
             try:
-                response = requests.post(API_URL, files=files, timeout=120)
+                response = requests.post(API_URL, files=files, data=data, timeout=120)
                 response.raise_for_status()
                 result = response.json()
             except requests.exceptions.RequestException as e:

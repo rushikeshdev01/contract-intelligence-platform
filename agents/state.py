@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Dict
+from typing import TypedDict, List, Dict, Any
 
 
 class ClauseRisk(TypedDict):
@@ -6,6 +6,13 @@ class ClauseRisk(TypedDict):
     risk_level: str  # "low" | "medium" | "high"
     reason: str
     type: str  # "present" | "missing"
+
+
+class BenchmarkRow(TypedDict):
+    provision: str
+    contract_value_days: float
+    standard_range: str
+    status: str  # "green" | "yellow" | "red"
 
 
 class ContractState(TypedDict):
@@ -18,5 +25,6 @@ class ContractState(TypedDict):
     user_position: str             # set before graph runs — which party the user is (e.g. "vendor", "customer")
     clauses: List[str]             # set by ClauseSegmenter
     risk_flags: List[ClauseRisk]   # set by RiskAnalyzer
+    benchmarks: List[BenchmarkRow] # set by BenchmarkAnalyzer
     summary: str                   # set by Summarizer
     error: str                     # set if any agent fails, so the graph can stop cleanly

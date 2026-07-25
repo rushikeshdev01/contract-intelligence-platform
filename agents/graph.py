@@ -2,6 +2,7 @@ from langgraph.graph import StateGraph, END
 from agents.state import ContractState
 from agents.clause_segmenter import segment_clauses
 from agents.risk_analyzer import analyze_risk
+from agents.benchmark_analyzer import analyze_benchmarks
 from agents.summarizer import summarize_contract
 
 
@@ -10,11 +11,13 @@ def build_graph():
 
     workflow.add_node("segment_clauses", segment_clauses)
     workflow.add_node("analyze_risk", analyze_risk)
+    workflow.add_node("analyze_benchmarks", analyze_benchmarks)
     workflow.add_node("summarize", summarize_contract)
 
     workflow.set_entry_point("segment_clauses")
     workflow.add_edge("segment_clauses", "analyze_risk")
-    workflow.add_edge("analyze_risk", "summarize")
+    workflow.add_edge("analyze_risk", "analyze_benchmarks")
+    workflow.add_edge("analyze_benchmarks", "summarize")
     workflow.add_edge("summarize", END)
 
     return workflow.compile()
@@ -31,6 +34,7 @@ def run_pipeline(raw_text: str, user_position: str = "") -> ContractState:
         "user_position": user_position,
         "clauses": [],
         "risk_flags": [],
+        "benchmarks": [],
         "summary": "",
         "error": "",
     }

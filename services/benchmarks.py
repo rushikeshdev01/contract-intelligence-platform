@@ -1,53 +1,72 @@
-from agents.state import ContractState
-from services.groq_client import call_groq_json
-from services.benchmarks import BENCHMARKS, evaluate_status
-
-SYSTEM_PROMPT = """You are a contract data extraction assistant.
-Read the contract text and try to find the following provisions. For each one
-that IS present in the contract, extract its duration and convert it to a
-number of days (e.g. "12 months" -> 365, "90 days" -> 90, "2 years" -> 730,
-"1 month" -> 30). If a provision is not mentioned, omit it from the output
-entirely — do not guess or invent a value.
-
-Provisions to look for:
-- liability_cap: the liability cap duration (often stated as "X months' fees")
-- auto_renewal_notice: notice period required before auto-renewal
-- termination_notice: notice period required to terminate the agreement
-- non_compete_duration: length of any non-compete obligation
-- confidentiality_duration: length of confidentiality/NDA obligations
-- cure_period: time allowed to fix a breach before termination
-
-Return ONLY valid JSON in this exact shape (omit keys that aren't found):
-{"liability_cap": 365, "termination_notice": 60}
+"""
+Reference table of industry-standard ranges for common contract provisions.
+Values are in consistent units (days) so comparisons are simple math, not string parsing.
+Based on commonly cited commercial contract norms (informational reference only —
+not a substitute for legal advice).
 """
 
+# Each entry: (standard_min_days, standard_max_days, red_below_days, red_above_days)
+# A provision is "green" inside [standard_min, standard_max],
+# "yellow" between red threshold and standard range,
+# "red" beyond the red threshold. None means no bound in that direction.
+BENCHMARKS = {
+    "liability_cap": {
+        "label": "Liability Cap (in months of fees, treated as days for math: 1 month = 30 days)",
+        "standard_min": 330,   # ~11 months
+        "standard_max": 365,   # 12 months
+        "red_below": 180,      # below 6 months = red
+        "red_above": None,
+    },
+    "auto_renewal_notice": {
+        "label": "Auto-Renewal Notice Period",
+        "standard_min": 90,
+        "standard_max": 180,
+        "red_below": 60,
+        "red_above": None,
+    },
+    "termination_notice": {
+        "label": "Termination Notice Period",
+        "standard_min": 60,
+        "standard_max": 90,
+        "red_below": 30,
+        "red_above": None,
+    },
+    "non_compete_duration": {
+        "label": "Non-Compete Duration",
+        "standard_min": 365,       # 1 year
+        "standard_max": 730,       # 2 years
+        "red_below": None,
+        "red_above": 1825,         # 5+ years = red
+    },
+    "confidentiality_duration": {
+        "label": "Confidentiality / NDA Term",
+        "standard_min": 1095,      # 3 years
+        "standard_max": 1825,      # 5 years
+        "red_below": 730,          # below 2 years = red
+        "red_above": None,
+    },
+    "cure_period": {
+        "label": "Cure Period (time to fix a breach before termination)",
+        "standard_min": 15,
+        "standard_max": 30,
+        "red_below": None,
+        "red_above": None,
+    },
+}
 
-def analyze_benchmarks(state: ContractState) -> ContractState:
-    raw_text = state.get("raw_text", "")
-    if not raw_text:
-        return state  # nothing to do, don't block the pipeline over this
 
-    extracted = call_groq_json(SYSTEM_PROMPT, raw_text)
+def evaluate_status(provision_key: str, value_days: float) -> str:
+    """Returns 'green' | 'yellow' | 'red' | 'unknown' for a given extracted value."""
+    bench = BENCHMARKS.get(provision_key)
+    if not bench or value_days is None:
+        return "unknown"
 
-    if "error" in extracted:
-        # Benchmarking is a bonus feature — don't fail the whole pipeline over it
-        return {**state, "benchmarks": []}
+    if bench["standard_min"] <= value_days <= bench["standard_max"]:
+        return "green"
 
-    rows = []
-    for key, value_days in extracted.items():
-        if key not in BENCHMARKS:
-            continue
-        try:
-            value_days = float(value_days)
-        except (TypeError, ValueError):
-            continue
+    if bench["red_below"] is not None and value_days < bench["red_below"]:
+        return "red"
+    if bench["red_above"] is not None and value_days > bench["red_above"]:
+        return "red"
 
-        status = evaluate_status(key, value_days)
-        rows.append({
-            "provision": BENCHMARKS[key]["label"],
-            "contract_value_days": value_days,
-            "standard_range": f'{BENCHMARKS[key]["standard_min"]}-{BENCHMARKS[key]["standard_max"]} days',
-            "status": status,  # "green" | "yellow" | "red"
-        })
-
-    return {**state, "benchmarks": rows}
+    return "yellow"

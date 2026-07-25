@@ -23,7 +23,7 @@ if uploaded_file is not None:
             files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
             data = {"position": position}
             try:
-                response = requests.post(API_URL, files=files, data=data, timeout=120)
+                response = requests.post(API_URL, files=files, data=data, timeout=300)
                 response.raise_for_status()
                 result = response.json()
             except requests.exceptions.RequestException as e:

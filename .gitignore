@@ -1,6 +1,7 @@
-venv/
 .env
-uploads/
+uploads/*
+!uploads/.gitkeep
 __pycache__/
 *.pyc
-.chroma/
+venv/
+.venv/

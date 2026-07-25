@@ -1,41 +1,40 @@
 import streamlit as st
-import os
-from services.pdf_service import extract_pdf_text
-from services.groq_service import test_groq, generate_summary
+import requests
 
+API_URL = "http://localhost:8000/analyze"
 
-st.title("Multi-Agent Contract Intelligence Platform")
-if st.button("Test Groq"):
-    result = test_groq()
-    st.success(result)
-    
-uploaded_file = st.file_uploader(
-    "Upload a contract",
-    type=["pdf", "docx"]
-)
+st.set_page_config(page_title="Contract Intelligence Platform", layout="wide")
+st.title("📄 Multi-Agent Contract Intelligence Platform")
+st.caption("Upload a contract → agents extract, segment, flag risk, and summarize it.")
+
+uploaded_file = st.file_uploader("Upload a contract", type=["pdf", "docx"])
 
 if uploaded_file is not None:
+    if st.button("Analyze Contract", type="primary"):
+        with st.spinner("Running agent pipeline (extraction → segmentation → risk → summary)..."):
+            files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
+            try:
+                response = requests.post(API_URL, files=files, timeout=120)
+                response.raise_for_status()
+                result = response.json()
+            except requests.exceptions.RequestException as e:
+                st.error(f"Failed to reach backend: {e}")
+                st.stop()
 
-    os.makedirs("uploads", exist_ok=True)
+        st.success("Analysis complete")
 
-    file_path = os.path.join("uploads", uploaded_file.name)
+        st.subheader("📝 Executive Summary")
+        st.write(result["summary"])
 
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+        st.subheader("⚠️ Risk Flags")
+        risk_color = {"low": "🟢", "medium": "🟡", "high": "🔴"}
+        for flag in result["risk_flags"]:
+            icon = risk_color.get(flag["risk_level"].lower(), "⚪")
+            st.markdown(f"{icon} **{flag['risk_level'].upper()}** — {flag['reason']}")
+            with st.expander("View clause"):
+                st.write(flag["clause"])
 
-    st.success(f"File saved: {uploaded_file.name}")
-    
-    if uploaded_file.name.endswith(".pdf"):
-        text = extract_pdf_text(file_path)
-
-        st.subheader("Extracted Text")
-        st.text_area(
-            "Contract Content",
-            text,
-            height=300
-        )
-    if st.button("Generate Summary"):
-        summary = generate_summary(text)
-
-        st.subheader("Contract Summary")
-        st.write(summary)
+        st.subheader("📋 All Clauses")
+        for i, clause in enumerate(result["clauses"], 1):
+            with st.expander(f"Clause {i}"):
+                st.write(clause)

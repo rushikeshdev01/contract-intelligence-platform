@@ -5,6 +5,7 @@ class ClauseRisk(TypedDict):
     clause: str
     risk_level: str  # "low" | "medium" | "high"
     reason: str
+    type: str  # "present" | "missing"
 
 
 class ContractState(TypedDict):

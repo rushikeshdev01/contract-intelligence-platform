@@ -26,13 +26,28 @@ if uploaded_file is not None:
         st.subheader("📝 Executive Summary")
         st.write(result["summary"])
 
-        st.subheader("⚠️ Risk Flags")
         risk_color = {"low": "🟢", "medium": "🟡", "high": "🔴"}
-        for flag in result["risk_flags"]:
-            icon = risk_color.get(flag["risk_level"].lower(), "⚪")
-            st.markdown(f"{icon} **{flag['risk_level'].upper()}** — {flag['reason']}")
-            with st.expander("View clause"):
-                st.write(flag["clause"])
+        present_flags = [f for f in result["risk_flags"] if f.get("type", "present") == "present"]
+        missing_flags = [f for f in result["risk_flags"] if f.get("type") == "missing"]
+
+        st.subheader("⚠️ Risk Flags (clauses present in the contract)")
+        if present_flags:
+            for flag in present_flags:
+                icon = risk_color.get(flag["risk_level"].lower(), "⚪")
+                st.markdown(f"{icon} **{flag['risk_level'].upper()}** — {flag['reason']}")
+                with st.expander("View clause"):
+                    st.write(flag["clause"])
+        else:
+            st.caption("No risky clauses flagged.")
+
+        st.subheader("🚫 Missing Protections (not found anywhere in the contract)")
+        if missing_flags:
+            st.caption("A protection that's silently absent can be riskier than one that's stated explicitly.")
+            for flag in missing_flags:
+                icon = risk_color.get(flag["risk_level"].lower(), "⚪")
+                st.markdown(f"{icon} **{flag['clause']}** — {flag['reason']}")
+        else:
+            st.caption("No missing-provision concerns detected.")
 
         st.subheader("📋 All Clauses")
         for i, clause in enumerate(result["clauses"], 1):

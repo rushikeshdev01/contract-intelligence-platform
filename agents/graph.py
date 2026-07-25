@@ -24,10 +24,11 @@ def build_graph():
 contract_graph = build_graph()
 
 
-def run_pipeline(raw_text: str) -> ContractState:
+def run_pipeline(raw_text: str, user_position: str = "") -> ContractState:
     """Entry point called by main.py — runs the full agent pipeline on extracted text."""
     initial_state: ContractState = {
         "raw_text": raw_text,
+        "user_position": user_position,
         "clauses": [],
         "risk_flags": [],
         "summary": "",

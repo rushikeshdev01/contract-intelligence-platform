@@ -15,6 +15,7 @@ class ContractState(TypedDict):
     nobody overwrites another agent's field.
     """
     raw_text: str                  # set by extraction step (before graph runs)
+    user_position: str             # set before graph runs — which party the user is (e.g. "vendor", "customer")
     clauses: List[str]             # set by ClauseSegmenter
     risk_flags: List[ClauseRisk]   # set by RiskAnalyzer
     summary: str                   # set by Summarizer

@@ -39,6 +39,19 @@ if uploaded_file is not None:
         present_flags = [f for f in result["risk_flags"] if f.get("type", "present") == "present"]
         missing_flags = [f for f in result["risk_flags"] if f.get("type") == "missing"]
 
+        st.subheader("📊 Market Standard Benchmarks")
+        benchmarks = result.get("benchmarks", [])
+        status_icon = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+        if benchmarks:
+            for row in benchmarks:
+                icon = status_icon.get(row["status"], "⚪")
+                st.markdown(
+                    f"{icon} **{row['provision']}** — contract: "
+                    f"{row['contract_value_days']:.0f} days · standard: {row['standard_range']}"
+                )
+        else:
+            st.caption("No benchmarkable provisions (e.g. liability cap, notice periods) were detected in this contract.")
+
         st.subheader("⚠️ Risk Flags (clauses present in the contract)")
         if present_flags:
             for flag in present_flags:

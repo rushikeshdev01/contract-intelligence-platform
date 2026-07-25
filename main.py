@@ -38,6 +38,7 @@ async def analyze_contract(file: UploadFile = File(...), position: str = Form(""
         return {
             "clauses": result["clauses"],
             "risk_flags": result["risk_flags"],
+            "benchmarks": result.get("benchmarks", []),
             "summary": result["summary"],
         }
     finally:

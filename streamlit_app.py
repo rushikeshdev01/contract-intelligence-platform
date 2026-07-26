@@ -35,6 +35,20 @@ if uploaded_file is not None:
         if result.get("document_type"):
             st.info(f"📄 Detected contract type: **{result['document_type']}**")
 
+        with st.expander("🔍 How this analysis was produced (agent-by-agent)"):
+            present_count = len([f for f in result["risk_flags"] if f.get("type", "present") == "present"])
+            missing_count = len([f for f in result["risk_flags"] if f.get("type") == "missing"])
+            benchmark_count = len(result.get("benchmarks", []))
+            clause_count = len(result["clauses"])
+
+            st.markdown(f"""
+1. **Document Classifier** → read the contract and identified it as **{result.get('document_type', 'Unknown')}**, which determined which checklist of critical provisions to apply later.
+2. **Clause Segmenter** → split the raw contract text into **{clause_count} distinct clauses** for individual analysis.
+3. **Risk Analyzer** → assessed each clause from the **"{position}"** perspective, producing **{present_count} present-clause risk flags**, and separately checked the type-specific checklist to find **{missing_count} missing-provision concerns**.
+4. **Benchmark Analyzer** → extracted **{benchmark_count} numeric provisions** (e.g. notice periods, liability caps) and compared them against industry-standard ranges.
+5. **Summarizer** → combined all of the above into the plain-English executive summary shown below.
+            """)
+
         st.subheader("📝 Executive Summary")
         st.write(result["summary"])
 

@@ -11,7 +11,10 @@ Do TWO things:
    clause can be low-risk for one party and high-risk for the other (e.g. a
    vendor-favorable liability cap is low-risk for the vendor, high-risk for the
    customer). Focus especially on: liability caps, indemnity, auto-renewal,
-   termination penalties, exclusivity, and unusual payment terms.
+   termination penalties, exclusivity, and unusual payment terms. Alongside the
+   "low|medium|high" label, also give a numeric "risk_score" from 0-100 (0 =
+   no risk, 100 = severe risk) so clauses within the same level can still be
+   ranked against each other.
 
 2. MISSING-PROVISION RISK: A contract that never mentions a critical
    protection is often riskier than one that states it explicitly, because the
@@ -21,13 +24,17 @@ Do TWO things:
    anywhere, add a risk flag for it:
 {checklist_items}
    If a check is genuinely not applicable to this contract, skip it rather
-   than forcing a flag.
+   than forcing a flag. Give missing-provision flags a "risk_score" too, using
+   the same 0-100 scale.
 
 Return ONLY valid JSON in this exact shape:
-{{"risk_flags": [{{"clause": "...", "risk_level": "low|medium|high", "reason": "...", "type": "present|missing"}}]}}
+{{"risk_flags": [{{"clause": "...", "risk_level": "low|medium|high", "risk_score": 0-100, "reason": "...", "type": "present|missing"}}]}}
 For missing-provision flags, set "clause" to the name of the missing provision
 (e.g. "Cap on Liability") and "type" to "missing". Keep "reason" to one concise
 sentence."""
+
+
+LEVEL_DEFAULT_SCORE = {"low": 20, "medium": 60, "high": 90}
 
 
 def build_system_prompt(user_position: str, document_type: str) -> str:
@@ -55,4 +62,10 @@ def analyze_risk(state: ContractState) -> ContractState:
     if "error" in result:
         return {**state, "error": result["error"]}
 
-    return {**state, "risk_flags": result.get("risk_flags", [])}
+    flags = result.get("risk_flags", [])
+    # Backfill a default numeric score if the model omits it, so the UI never breaks
+    for flag in flags:
+        if "risk_score" not in flag or not isinstance(flag.get("risk_score"), (int, float)):
+            flag["risk_score"] = LEVEL_DEFAULT_SCORE.get(flag.get("risk_level", "").lower(), 50)
+
+    return {**state, "risk_flags": flags}

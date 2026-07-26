@@ -69,10 +69,29 @@ h1, h2, h3 {{
     font-family: 'JetBrains Mono', monospace;
     color: #E9E6DD;
 }}
-.section-divider {{
-    border: none;
-    border-top: 1px solid rgba(255,255,255,0.08);
-    margin: 1.6rem 0 1.1rem 0;
+.pipeline-step {{
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    height: 100%;
+}}
+.pipeline-step .step-num {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #D9A441;
+    letter-spacing: 0.1em;
+}}
+.pipeline-step .step-title {{
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.05rem;
+    color: #E9E6DD;
+    margin: 0.3rem 0 0.35rem 0;
+}}
+.pipeline-step .step-desc {{
+    font-size: 0.85rem;
+    color: #9AA1AB;
+    line-height: 1.4;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -99,6 +118,51 @@ st.markdown(
     'flag risk from your side of the deal, benchmark it against market norms, and summarize it.</div>',
     unsafe_allow_html=True,
 )
+
+# ---------------------------------------------------------------------------
+# Welcome screen — shown once per session, before the uploader
+# ---------------------------------------------------------------------------
+if "entered_app" not in st.session_state:
+    st.session_state.entered_app = False
+
+if not st.session_state.entered_app:
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="color:#DCDAD3;font-size:0.98rem;max-width:680px;margin-bottom:1.4rem">'
+        'Reading contracts manually is slow, and the risk that matters most is often '
+        'what\'s <em>missing</em>, not just what\'s written. This tool runs your contract '
+        'through five specialized agents so nothing gets a generic, one-size-fits-all review.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    steps = [
+        ("01", "Classify", "Detects the contract type (NDA, SaaS, Lease, Employment, Vendor) to apply the right checklist."),
+        ("02", "Segment", "Splits the raw text into individual clauses for focused analysis."),
+        ("03", "Risk Analysis", "Flags risky clauses from your specific side of the deal, and checks for silently missing protections."),
+        ("04", "Benchmark", "Compares key terms (notice periods, liability caps) against industry-standard ranges."),
+        ("05", "Summarize", "Produces a plain-English executive summary of the whole contract."),
+    ]
+    cols = st.columns(5)
+    for col, (num, title, desc) in zip(cols, steps):
+        with col:
+            st.markdown(
+                f'<div class="pipeline-step">'
+                f'<div class="step-num">{num}</div>'
+                f'<div class="step-title">{title}</div>'
+                f'<div class="step-desc">{desc}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown('<div style="margin-top:1.4rem"></div>', unsafe_allow_html=True)
+    st.caption("This tool provides AI-assisted first-pass review — it is not a substitute for a qualified attorney.")
+
+    if st.button("Get Started →", type="primary"):
+        st.session_state.entered_app = True
+        st.rerun()
+
+    st.stop()
 
 # ---------------------------------------------------------------------------
 # Upload + position

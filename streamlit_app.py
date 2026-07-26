@@ -142,9 +142,13 @@ def metric_card(value: str, label: str, accent: str = "#D9A441"):
 
 
 def compute_overall_risk(risk_flags: list) -> tuple:
-    """Averages per-flag risk levels into a single 0-100 score and a letter grade."""
+    """Averages per-flag numeric risk scores into a single 0-100 score and a letter grade."""
     level_score = {"low": 20, "medium": 60, "high": 90}
-    scores = [level_score.get(f.get("risk_level", "").lower(), 50) for f in risk_flags]
+    scores = [
+        f["risk_score"] if isinstance(f.get("risk_score"), (int, float))
+        else level_score.get(f.get("risk_level", "").lower(), 50)
+        for f in risk_flags
+    ]
     if not scores:
         return 0, "N/A"
     avg = sum(scores) / len(scores)
@@ -272,6 +276,24 @@ if uploaded_file is not None:
         red_benchmarks = len([b for b in benchmarks if b["status"] == "red"])
         benchmark_accent = "#C1443D" if red_benchmarks else "#4F9B6E"
 
+        high_present = [f for f in present_flags if f.get("risk_level", "").lower() == "high"]
+        high_missing = [f for f in missing_flags if f.get("risk_level", "").lower() == "high"]
+        if grade in ("D", "F"):
+            alert_bits = []
+            if high_present:
+                alert_bits.append(f"{len(high_present)} high-risk clause{'s' if len(high_present) != 1 else ''}")
+            if high_missing:
+                alert_bits.append(f"{len(high_missing)} critical missing protection{'s' if len(high_missing) != 1 else ''}")
+            detail = " and ".join(alert_bits) if alert_bits else "significant concerns"
+            st.markdown(
+                f'<div style="background:rgba(193,68,61,0.12);border:1px solid rgba(193,68,61,0.4);'
+                f'border-radius:8px;padding:0.8rem 1.1rem;margin-bottom:1rem;color:#E9E6DD">'
+                f'⚠️ <strong>High overall risk (Grade {grade})</strong> — this contract has {detail}. '
+                f'Review the flags below closely before signing.'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
         m1, m2, m3, m4, m5 = st.columns(5)
         with m1:
             metric_card(f"{overall_score}", f"Overall Risk · Grade {grade}", grade_accent)
@@ -344,8 +366,10 @@ if uploaded_file is not None:
         st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
         st.subheader("Risk Flags — clauses present in the contract")
         if present_flags:
-            for flag in present_flags:
-                redline_card(flag["risk_level"], flag["risk_level"], flag["reason"])
+            for flag in sorted(present_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
+                score = flag.get("risk_score", "?")
+                tag = f'{flag["risk_level"].upper()} · {score}'
+                redline_card(tag, flag["risk_level"], flag["reason"])
                 with st.expander("View clause"):
                     st.write(flag["clause"])
         else:
@@ -355,9 +379,11 @@ if uploaded_file is not None:
         st.subheader("Missing Protections — not found anywhere in the contract")
         if missing_flags:
             st.caption("A protection that's silently absent can be riskier than one that's stated explicitly.")
-            for flag in missing_flags:
+            for flag in sorted(missing_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
+                score = flag.get("risk_score", "?")
+                tag = f'{flag["risk_level"].upper()} · {score}'
                 body = f'<strong>{flag["clause"]}</strong> — {flag["reason"]}'
-                redline_card(flag["risk_level"], flag["risk_level"], body)
+                redline_card(tag, flag["risk_level"], body)
         else:
             st.caption("No missing-provision concerns detected.")
 

@@ -36,6 +36,7 @@ async def analyze_contract(file: UploadFile = File(...), position: str = Form(""
             raise HTTPException(status_code=500, detail=result["error"])
 
         return {
+            "document_type": result.get("document_type", ""),
             "clauses": result["clauses"],
             "risk_flags": result["risk_flags"],
             "benchmarks": result.get("benchmarks", []),

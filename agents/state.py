@@ -4,6 +4,7 @@ from typing import TypedDict, List, Dict, Any
 class ClauseRisk(TypedDict):
     clause: str
     risk_level: str  # "low" | "medium" | "high"
+    risk_score: int  # 0-100, finer-grained than risk_level
     reason: str
     type: str  # "present" | "missing"
 

@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+from services.report_generator import build_docx_report
 
 API_URL = "http://localhost:8000/analyze"
 
@@ -31,6 +32,14 @@ if uploaded_file is not None:
                 st.stop()
 
         st.success("Analysis complete")
+
+        docx_buffer = build_docx_report(result, position, filename=uploaded_file.name)
+        st.download_button(
+            label="⬇️ Download Report (.docx)",
+            data=docx_buffer,
+            file_name=f"contract_analysis_{uploaded_file.name.rsplit('.', 1)[0]}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
 
         if result.get("document_type"):
             st.info(f"📄 Detected contract type: **{result['document_type']}**")

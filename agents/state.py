@@ -23,6 +23,7 @@ class ContractState(TypedDict):
     """
     raw_text: str                  # set by extraction step (before graph runs)
     user_position: str             # set before graph runs — which party the user is (e.g. "vendor", "customer")
+    document_type: str             # set by DocClassifier — e.g. "NDA", "SaaS / Software Agreement"
     clauses: List[str]             # set by ClauseSegmenter
     risk_flags: List[ClauseRisk]   # set by RiskAnalyzer
     benchmarks: List[BenchmarkRow] # set by BenchmarkAnalyzer

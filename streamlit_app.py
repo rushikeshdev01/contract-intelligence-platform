@@ -93,6 +93,29 @@ h1, h2, h3 {{
     color: #9AA1AB;
     line-height: 1.4;
 }}
+.metric-card {{
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-top: 3px solid var(--accent, #D9A441);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    text-align: center;
+    height: 100%;
+}}
+.metric-card .metric-value {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.9rem;
+    font-weight: 500;
+    color: #E9E6DD;
+    line-height: 1.1;
+}}
+.metric-card .metric-label {{
+    font-size: 0.78rem;
+    color: #9AA1AB;
+    margin-top: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,6 +129,36 @@ def redline_card(tag: str, tag_color_key: str, body_html: str, color_map=RISK_CO
         f'</div>',
         unsafe_allow_html=True,
     )
+
+
+def metric_card(value: str, label: str, accent: str = "#D9A441"):
+    st.markdown(
+        f'<div class="metric-card" style="--accent:{accent}">'
+        f'<div class="metric-value">{value}</div>'
+        f'<div class="metric-label">{label}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def compute_overall_risk(risk_flags: list) -> tuple:
+    """Averages per-flag risk levels into a single 0-100 score and a letter grade."""
+    level_score = {"low": 20, "medium": 60, "high": 90}
+    scores = [level_score.get(f.get("risk_level", "").lower(), 50) for f in risk_flags]
+    if not scores:
+        return 0, "N/A"
+    avg = sum(scores) / len(scores)
+    if avg <= 20:
+        grade = "A"
+    elif avg <= 40:
+        grade = "B"
+    elif avg <= 60:
+        grade = "C"
+    elif avg <= 80:
+        grade = "D"
+    else:
+        grade = "F"
+    return round(avg), grade
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +260,56 @@ if uploaded_file is not None:
                 unsafe_allow_html=True,
             )
 
+        # -----------------------------------------------------------------
+        # Dashboard summary row — at-a-glance metrics before the detail
+        # -----------------------------------------------------------------
+        present_flags = [f for f in result["risk_flags"] if f.get("type", "present") == "present"]
+        missing_flags = [f for f in result["risk_flags"] if f.get("type") == "missing"]
+        benchmarks = result.get("benchmarks", [])
+
+        overall_score, grade = compute_overall_risk(result["risk_flags"])
+        grade_accent = {"A": "#4F9B6E", "B": "#4F9B6E", "C": "#D9A441", "D": "#C1443D", "F": "#C1443D"}.get(grade, "#5B6470")
+        red_benchmarks = len([b for b in benchmarks if b["status"] == "red"])
+        benchmark_accent = "#C1443D" if red_benchmarks else "#4F9B6E"
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        with m1:
+            metric_card(f"{overall_score}", f"Overall Risk · Grade {grade}", grade_accent)
+        with m2:
+            metric_card(str(len(result["clauses"])), "Clauses Analyzed", "#5B6470")
+        with m3:
+            metric_card(str(len(present_flags)), "Risk Flags", "#C1443D" if present_flags else "#4F9B6E")
+        with m4:
+            metric_card(str(len(missing_flags)), "Missing Protections", "#C1443D" if missing_flags else "#4F9B6E")
+        with m5:
+            metric_card(str(len(benchmarks)), "Benchmarks Checked", benchmark_accent)
+
+        # Risk distribution chart
+        if present_flags:
+            level_counts = {"Low": 0, "Medium": 0, "High": 0}
+            for f in present_flags:
+                lvl = f.get("risk_level", "").capitalize()
+                if lvl in level_counts:
+                    level_counts[lvl] += 1
+
+            st.markdown('<div style="margin-top:1.1rem"></div>', unsafe_allow_html=True)
+            chart_cols = st.columns([1, 1, 1])
+            bar_colors = {"Low": "#4F9B6E", "Medium": "#D9A441", "High": "#C1443D"}
+            for col, (level, count) in zip(chart_cols, level_counts.items()):
+                with col:
+                    max_count = max(level_counts.values()) or 1
+                    bar_width = int((count / max_count) * 100) if count else 4
+                    st.markdown(
+                        f'<div style="font-size:0.8rem;color:#9AA1AB;margin-bottom:0.25rem">'
+                        f'{level} risk · <span class="data-value">{count}</span></div>'
+                        f'<div style="background:rgba(255,255,255,0.06);border-radius:4px;height:10px;overflow:hidden">'
+                        f'<div style="background:{bar_colors[level]};width:{bar_width}%;height:100%"></div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+
         with st.expander("🔍 How this analysis was produced (agent-by-agent)"):
             present_count = len([f for f in result["risk_flags"] if f.get("type", "present") == "present"])
             missing_count = len([f for f in result["risk_flags"] if f.get("type") == "missing"])
@@ -224,10 +327,6 @@ if uploaded_file is not None:
         st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
         st.subheader("Executive Summary")
         st.write(result["summary"])
-
-        present_flags = [f for f in result["risk_flags"] if f.get("type", "present") == "present"]
-        missing_flags = [f for f in result["risk_flags"] if f.get("type") == "missing"]
-        benchmarks = result.get("benchmarks", [])
 
         st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
         st.subheader("Market Standard Benchmarks")

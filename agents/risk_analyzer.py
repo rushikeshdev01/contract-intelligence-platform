@@ -1,8 +1,12 @@
 from agents.state import ContractState
 from services.groq_client import call_groq_json
 from services.checklists import get_checklist
+from services.indian_law import INDIAN_LEGAL_REFERENCES
 
-BASE_INSTRUCTIONS = """You are a contract risk analysis assistant.
+BASE_INSTRUCTIONS = """You are a contract risk analysis assistant reviewing a
+contract intended to be governed under Indian law (or at least reviewed by an
+Indian user), so ground your reasoning in Indian statutes where genuinely
+relevant.
 
 Do TWO things:
 
@@ -14,7 +18,15 @@ Do TWO things:
    termination penalties, exclusivity, and unusual payment terms. Alongside the
    "low|medium|high" label, also give a numeric "risk_score" from 0-100 (0 =
    no risk, 100 = severe risk) so clauses within the same level can still be
-   ranked against each other.
+   ranked against each other. If one of the Indian statutes below is genuinely
+   relevant to a clause (e.g. a non-compete clause and Section 27), cite it
+   concisely in a "legal_reference" field — e.g. "Indian Contract Act, 1872,
+   Section 27". If none is genuinely relevant, omit the field entirely rather
+   than forcing a citation.
+
+Reference glossary of relevant Indian statutes (only cite these if they
+genuinely apply — do not force a citation onto every clause):
+{legal_references}
 
 2. MISSING-PROVISION RISK: A contract that never mentions a critical
    protection is often riskier than one that states it explicitly, because the
@@ -28,7 +40,7 @@ Do TWO things:
    the same 0-100 scale.
 
 Return ONLY valid JSON in this exact shape:
-{{"risk_flags": [{{"clause": "...", "risk_level": "low|medium|high", "risk_score": 0-100, "reason": "...", "type": "present|missing"}}]}}
+{{"risk_flags": [{{"clause": "...", "risk_level": "low|medium|high", "risk_score": 0-100, "reason": "...", "type": "present|missing", "legal_reference": "optional — omit if not genuinely applicable"}}]}}
 For missing-provision flags, set "clause" to the name of the missing provision
 (e.g. "Cap on Liability") and "type" to "missing". Keep "reason" to one concise
 sentence."""
@@ -40,7 +52,11 @@ LEVEL_DEFAULT_SCORE = {"low": 20, "medium": 60, "high": 90}
 def build_system_prompt(user_position: str, document_type: str) -> str:
     checklist = get_checklist(document_type)
     checklist_items = "\n".join(f"   - {item}" for item in checklist)
-    prompt = BASE_INSTRUCTIONS.format(document_type=document_type, checklist_items=checklist_items)
+    prompt = BASE_INSTRUCTIONS.format(
+        document_type=document_type,
+        checklist_items=checklist_items,
+        legal_references=INDIAN_LEGAL_REFERENCES,
+    )
 
     if user_position and user_position.strip().lower() != "not specified":
         position_line = f'\nThe user\'s position in this contract is: "{user_position}". Assess every risk from this party\'s point of view.\n'

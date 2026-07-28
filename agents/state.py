@@ -7,6 +7,7 @@ class ClauseRisk(TypedDict):
     risk_score: int  # 0-100, finer-grained than risk_level
     reason: str
     type: str  # "present" | "missing"
+    legal_reference: str  # optional — e.g. "Indian Contract Act, 1872, Section 27"
 
 
 class BenchmarkRow(TypedDict):

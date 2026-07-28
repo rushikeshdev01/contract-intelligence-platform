@@ -369,7 +369,10 @@ if uploaded_file is not None:
             for flag in sorted(present_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
                 score = flag.get("risk_score", "?")
                 tag = f'{flag["risk_level"].upper()} · {score}'
-                redline_card(tag, flag["risk_level"], flag["reason"])
+                body = flag["reason"]
+                if flag.get("legal_reference"):
+                    body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
+                redline_card(tag, flag["risk_level"], body)
                 with st.expander("View clause"):
                     st.write(flag["clause"])
         else:
@@ -383,6 +386,8 @@ if uploaded_file is not None:
                 score = flag.get("risk_score", "?")
                 tag = f'{flag["risk_level"].upper()} · {score}'
                 body = f'<strong>{flag["clause"]}</strong> — {flag["reason"]}'
+                if flag.get("legal_reference"):
+                    body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
                 redline_card(tag, flag["risk_level"], body)
         else:
             st.caption("No missing-provision concerns detected.")

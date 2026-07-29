@@ -145,33 +145,41 @@ def metric_card(value: str, label: str, accent: str = "#D9A441"):
 
 
 # ---------------------------------------------------------------------------
-# Sidebar: recent analysis history (from SQLite via the backend)
+# Session flag: has the user clicked past the welcome screen?
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown('<div class="eyebrow">Recent Analyses</div>', unsafe_allow_html=True)
-    try:
-        history_resp = requests.get(f"{BASE_URL}/history", timeout=5)
-        history_resp.raise_for_status()
-        recent = history_resp.json().get("analyses", [])
-    except requests.exceptions.RequestException:
-        recent = []
-        st.caption("Backend not reachable — history unavailable.")
+if "entered_app" not in st.session_state:
+    st.session_state.entered_app = False
 
-    if recent:
-        for item in recent:
-            grade_color = {"A": "#4F9B6E", "B": "#4F9B6E", "C": "#D9A441", "D": "#C1443D", "F": "#C1443D"}.get(item["grade"], "#5B6470")
-            label = f'{item["filename"]}  ·  Grade {item["grade"]}'
-            if st.button(label, key=f"history_{item['id']}", use_container_width=True):
-                try:
-                    detail_resp = requests.get(f"{BASE_URL}/history/{item['id']}", timeout=10)
-                    detail_resp.raise_for_status()
-                    st.session_state.viewed_history = detail_resp.json()
-                    st.session_state.entered_app = True
-                    st.rerun()
-                except requests.exceptions.RequestException as e:
-                    st.error(f"Could not load: {e}")
-    elif recent == []:
-        st.caption("No analyses yet — run one to see it here.")
+# ---------------------------------------------------------------------------
+# Sidebar: recent analysis history (from SQLite via the backend)
+# Only shown once the user has entered the app past the welcome screen.
+# ---------------------------------------------------------------------------
+if st.session_state.entered_app:
+    with st.sidebar:
+        st.markdown('<div class="eyebrow">Recent Analyses</div>', unsafe_allow_html=True)
+        try:
+            history_resp = requests.get(f"{BASE_URL}/history", timeout=5)
+            history_resp.raise_for_status()
+            recent = history_resp.json().get("analyses", [])
+        except requests.exceptions.RequestException:
+            recent = []
+            st.caption("Backend not reachable — history unavailable.")
+
+        if recent:
+            for item in recent:
+                grade_color = {"A": "#4F9B6E", "B": "#4F9B6E", "C": "#D9A441", "D": "#C1443D", "F": "#C1443D"}.get(item["grade"], "#5B6470")
+                label = f'{item["filename"]}  ·  Grade {item["grade"]}'
+                if st.button(label, key=f"history_{item['id']}", use_container_width=True):
+                    try:
+                        detail_resp = requests.get(f"{BASE_URL}/history/{item['id']}", timeout=10)
+                        detail_resp.raise_for_status()
+                        st.session_state.viewed_history = detail_resp.json()
+                        st.session_state.entered_app = True
+                        st.rerun()
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Could not load: {e}")
+        elif recent == []:
+            st.caption("No analyses yet — run one to see it here.")
 
 # ---------------------------------------------------------------------------
 # Header
@@ -187,9 +195,6 @@ st.markdown(
 # ---------------------------------------------------------------------------
 # Welcome screen — shown once per session, before the uploader
 # ---------------------------------------------------------------------------
-if "entered_app" not in st.session_state:
-    st.session_state.entered_app = False
-
 if not st.session_state.entered_app:
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
     st.markdown(

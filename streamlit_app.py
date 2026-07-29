@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 from services.report_generator import build_docx_report
+from services.scoring import compute_overall_risk
 
-API_URL = "http://localhost:8000/analyze"
+BASE_URL = "http://localhost:8000"
+API_URL = f"{BASE_URL}/analyze"
 
 st.set_page_config(page_title="Contract Intelligence Platform", page_icon="📑", layout="wide")
 
@@ -141,29 +143,35 @@ def metric_card(value: str, label: str, accent: str = "#D9A441"):
     )
 
 
-def compute_overall_risk(risk_flags: list) -> tuple:
-    """Averages per-flag numeric risk scores into a single 0-100 score and a letter grade."""
-    level_score = {"low": 20, "medium": 60, "high": 90}
-    scores = [
-        f["risk_score"] if isinstance(f.get("risk_score"), (int, float))
-        else level_score.get(f.get("risk_level", "").lower(), 50)
-        for f in risk_flags
-    ]
-    if not scores:
-        return 0, "N/A"
-    avg = sum(scores) / len(scores)
-    if avg <= 20:
-        grade = "A"
-    elif avg <= 40:
-        grade = "B"
-    elif avg <= 60:
-        grade = "C"
-    elif avg <= 80:
-        grade = "D"
-    else:
-        grade = "F"
-    return round(avg), grade
 
+# ---------------------------------------------------------------------------
+# Sidebar: recent analysis history (from SQLite via the backend)
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown('<div class="eyebrow">Recent Analyses</div>', unsafe_allow_html=True)
+    try:
+        history_resp = requests.get(f"{BASE_URL}/history", timeout=5)
+        history_resp.raise_for_status()
+        recent = history_resp.json().get("analyses", [])
+    except requests.exceptions.RequestException:
+        recent = []
+        st.caption("Backend not reachable — history unavailable.")
+
+    if recent:
+        for item in recent:
+            grade_color = {"A": "#4F9B6E", "B": "#4F9B6E", "C": "#D9A441", "D": "#C1443D", "F": "#C1443D"}.get(item["grade"], "#5B6470")
+            label = f'{item["filename"]}  ·  Grade {item["grade"]}'
+            if st.button(label, key=f"history_{item['id']}", use_container_width=True):
+                try:
+                    detail_resp = requests.get(f"{BASE_URL}/history/{item['id']}", timeout=10)
+                    detail_resp.raise_for_status()
+                    st.session_state.viewed_history = detail_resp.json()
+                    st.session_state.entered_app = True
+                    st.rerun()
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Could not load: {e}")
+    elif recent == []:
+        st.caption("No analyses yet — run one to see it here.")
 
 # ---------------------------------------------------------------------------
 # Header
@@ -224,6 +232,173 @@ if not st.session_state.entered_app:
 # ---------------------------------------------------------------------------
 # Upload + position
 # ---------------------------------------------------------------------------
+def render_results(result: dict, position: str, filename: str, show_download: bool = True):
+    if show_download:
+        docx_buffer = build_docx_report(result, position, filename=filename)
+        st.download_button(
+            label="⬇️  Download Report (.docx)",
+            data=docx_buffer,
+            file_name=f"contract_analysis_{filename.rsplit('.', 1)[0]}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    if result.get("document_type"):
+        st.markdown(
+            f'<div class="eyebrow" style="margin-top:1.2rem">Detected Type</div>'
+            f'<div style="font-size:1.05rem;color:#E9E6DD;margin-bottom:0.8rem">{result["document_type"]}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # -----------------------------------------------------------------
+    # Dashboard summary row — at-a-glance metrics before the detail
+    # -----------------------------------------------------------------
+    present_flags = [f for f in result["risk_flags"] if f.get("type", "present") == "present"]
+    missing_flags = [f for f in result["risk_flags"] if f.get("type") == "missing"]
+    benchmarks = result.get("benchmarks", [])
+
+    overall_score, grade = compute_overall_risk(result["risk_flags"])
+    grade_accent = {"A": "#4F9B6E", "B": "#4F9B6E", "C": "#D9A441", "D": "#C1443D", "F": "#C1443D"}.get(grade, "#5B6470")
+    red_benchmarks = len([b for b in benchmarks if b["status"] == "red"])
+    benchmark_accent = "#C1443D" if red_benchmarks else "#4F9B6E"
+
+    high_present = [f for f in present_flags if f.get("risk_level", "").lower() == "high"]
+    high_missing = [f for f in missing_flags if f.get("risk_level", "").lower() == "high"]
+    if grade in ("D", "F"):
+        alert_bits = []
+        if high_present:
+            alert_bits.append(f"{len(high_present)} high-risk clause{'s' if len(high_present) != 1 else ''}")
+        if high_missing:
+            alert_bits.append(f"{len(high_missing)} critical missing protection{'s' if len(high_missing) != 1 else ''}")
+        detail = " and ".join(alert_bits) if alert_bits else "significant concerns"
+        st.markdown(
+            f'<div style="background:rgba(193,68,61,0.12);border:1px solid rgba(193,68,61,0.4);'
+            f'border-radius:8px;padding:0.8rem 1.1rem;margin-bottom:1rem;color:#E9E6DD">'
+            f'⚠️ <strong>High overall risk (Grade {grade})</strong> — this contract has {detail}. '
+            f'Review the flags below closely before signing.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    with m1:
+        metric_card(f"{overall_score}", f"Overall Risk · Grade {grade}", grade_accent)
+    with m2:
+        metric_card(str(len(result["clauses"])), "Clauses Analyzed", "#5B6470")
+    with m3:
+        metric_card(str(len(present_flags)), "Risk Flags", "#C1443D" if present_flags else "#4F9B6E")
+    with m4:
+        metric_card(str(len(missing_flags)), "Missing Protections", "#C1443D" if missing_flags else "#4F9B6E")
+    with m5:
+        metric_card(str(len(benchmarks)), "Benchmarks Checked", benchmark_accent)
+
+    # Risk distribution chart
+    if present_flags:
+        level_counts = {"Low": 0, "Medium": 0, "High": 0}
+        for f in present_flags:
+            lvl = f.get("risk_level", "").capitalize()
+            if lvl in level_counts:
+                level_counts[lvl] += 1
+
+        st.markdown('<div style="margin-top:1.1rem"></div>', unsafe_allow_html=True)
+        chart_cols = st.columns([1, 1, 1])
+        bar_colors = {"Low": "#4F9B6E", "Medium": "#D9A441", "High": "#C1443D"}
+        for col, (level, count) in zip(chart_cols, level_counts.items()):
+            with col:
+                max_count = max(level_counts.values()) or 1
+                bar_width = int((count / max_count) * 100) if count else 4
+                st.markdown(
+                    f'<div style="font-size:0.8rem;color:#9AA1AB;margin-bottom:0.25rem">'
+                    f'{level} risk · <span class="data-value">{count}</span></div>'
+                    f'<div style="background:rgba(255,255,255,0.06);border-radius:4px;height:10px;overflow:hidden">'
+                    f'<div style="background:{bar_colors[level]};width:{bar_width}%;height:100%"></div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+
+    with st.expander("🔍 How this analysis was produced (agent-by-agent)"):
+        present_count = len([f for f in result["risk_flags"] if f.get("type", "present") == "present"])
+        missing_count = len([f for f in result["risk_flags"] if f.get("type") == "missing"])
+        benchmark_count = len(result.get("benchmarks", []))
+        clause_count = len(result["clauses"])
+
+        st.markdown(f"""
+1. **Document Classifier** → read the contract and identified it as **{result.get('document_type', 'Unknown')}**, which determined which checklist of critical provisions to apply later.
+2. **Clause Segmenter** → split the raw contract text into **{clause_count} distinct clauses** for individual analysis.
+3. **Risk Analyzer** → assessed each clause from the **"{position}"** perspective, producing **{present_count} present-clause risk flags**, and separately checked the type-specific checklist to find **{missing_count} missing-provision concerns**.
+4. **Benchmark Analyzer** → extracted **{benchmark_count} numeric provisions** (e.g. notice periods, liability caps) and compared them against industry-standard ranges.
+5. **Summarizer** → combined all of the above into the plain-English executive summary shown below.
+        """)
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.subheader("Executive Summary")
+    st.write(result["summary"])
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.subheader("Market Standard Benchmarks")
+    if benchmarks:
+        for row in benchmarks:
+            body = (
+                f'<span class="data-value">{row["provision"]}</span> — '
+                f'contract: <span class="data-value">{row["contract_value_days"]:.0f} days</span> · '
+                f'standard: <span class="data-value">{row["standard_range"]}</span>'
+            )
+            redline_card(row["status"], row["status"], body, color_map=STATUS_COLORS)
+    else:
+        st.caption("No benchmarkable provisions (e.g. liability cap, notice periods) were detected in this contract.")
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.subheader("Risk Flags — clauses present in the contract")
+    if present_flags:
+        for flag in sorted(present_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
+            score = flag.get("risk_score", "?")
+            tag = f'{flag["risk_level"].upper()} · {score}'
+            body = flag["reason"]
+            if flag.get("legal_reference"):
+                body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
+            redline_card(tag, flag["risk_level"], body)
+            with st.expander("View clause"):
+                st.write(flag["clause"])
+    else:
+        st.caption("No risky clauses flagged.")
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.subheader("Missing Protections — not found anywhere in the contract")
+    if missing_flags:
+        st.caption("A protection that's silently absent can be riskier than one that's stated explicitly.")
+        for flag in sorted(missing_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
+            score = flag.get("risk_score", "?")
+            tag = f'{flag["risk_level"].upper()} · {score}'
+            body = f'<strong>{flag["clause"]}</strong> — {flag["reason"]}'
+            if flag.get("legal_reference"):
+                body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
+            redline_card(tag, flag["risk_level"], body)
+    else:
+        st.caption("No missing-provision concerns detected.")
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.subheader("All Clauses")
+    for i, clause in enumerate(result["clauses"], 1):
+        with st.expander(f"Clause {i}"):
+            st.write(clause)
+
+
+# ---------------------------------------------------------------------------
+# Viewing a past analysis from the sidebar history
+# ---------------------------------------------------------------------------
+if st.session_state.get("viewed_history"):
+    hist = st.session_state.viewed_history
+    st.success(f"Viewing saved analysis: {hist['filename']}")
+    if st.button("← Back to new analysis"):
+        del st.session_state.viewed_history
+        st.rerun()
+    render_results(hist, hist.get("user_position", ""), hist["filename"], show_download=True)
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Upload + position
+# ---------------------------------------------------------------------------
 uploaded_file = st.file_uploader("Upload a contract", type=["pdf", "docx"])
 
 position = st.selectbox(
@@ -248,152 +423,4 @@ if uploaded_file is not None:
                 st.stop()
 
         st.success("Analysis complete")
-
-        docx_buffer = build_docx_report(result, position, filename=uploaded_file.name)
-        st.download_button(
-            label="⬇️  Download Report (.docx)",
-            data=docx_buffer,
-            file_name=f"contract_analysis_{uploaded_file.name.rsplit('.', 1)[0]}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-
-        if result.get("document_type"):
-            st.markdown(
-                f'<div class="eyebrow" style="margin-top:1.2rem">Detected Type</div>'
-                f'<div style="font-size:1.05rem;color:#E9E6DD;margin-bottom:0.8rem">{result["document_type"]}</div>',
-                unsafe_allow_html=True,
-            )
-
-        # -----------------------------------------------------------------
-        # Dashboard summary row — at-a-glance metrics before the detail
-        # -----------------------------------------------------------------
-        present_flags = [f for f in result["risk_flags"] if f.get("type", "present") == "present"]
-        missing_flags = [f for f in result["risk_flags"] if f.get("type") == "missing"]
-        benchmarks = result.get("benchmarks", [])
-
-        overall_score, grade = compute_overall_risk(result["risk_flags"])
-        grade_accent = {"A": "#4F9B6E", "B": "#4F9B6E", "C": "#D9A441", "D": "#C1443D", "F": "#C1443D"}.get(grade, "#5B6470")
-        red_benchmarks = len([b for b in benchmarks if b["status"] == "red"])
-        benchmark_accent = "#C1443D" if red_benchmarks else "#4F9B6E"
-
-        high_present = [f for f in present_flags if f.get("risk_level", "").lower() == "high"]
-        high_missing = [f for f in missing_flags if f.get("risk_level", "").lower() == "high"]
-        if grade in ("D", "F"):
-            alert_bits = []
-            if high_present:
-                alert_bits.append(f"{len(high_present)} high-risk clause{'s' if len(high_present) != 1 else ''}")
-            if high_missing:
-                alert_bits.append(f"{len(high_missing)} critical missing protection{'s' if len(high_missing) != 1 else ''}")
-            detail = " and ".join(alert_bits) if alert_bits else "significant concerns"
-            st.markdown(
-                f'<div style="background:rgba(193,68,61,0.12);border:1px solid rgba(193,68,61,0.4);'
-                f'border-radius:8px;padding:0.8rem 1.1rem;margin-bottom:1rem;color:#E9E6DD">'
-                f'⚠️ <strong>High overall risk (Grade {grade})</strong> — this contract has {detail}. '
-                f'Review the flags below closely before signing.'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-        m1, m2, m3, m4, m5 = st.columns(5)
-        with m1:
-            metric_card(f"{overall_score}", f"Overall Risk · Grade {grade}", grade_accent)
-        with m2:
-            metric_card(str(len(result["clauses"])), "Clauses Analyzed", "#5B6470")
-        with m3:
-            metric_card(str(len(present_flags)), "Risk Flags", "#C1443D" if present_flags else "#4F9B6E")
-        with m4:
-            metric_card(str(len(missing_flags)), "Missing Protections", "#C1443D" if missing_flags else "#4F9B6E")
-        with m5:
-            metric_card(str(len(benchmarks)), "Benchmarks Checked", benchmark_accent)
-
-        # Risk distribution chart
-        if present_flags:
-            level_counts = {"Low": 0, "Medium": 0, "High": 0}
-            for f in present_flags:
-                lvl = f.get("risk_level", "").capitalize()
-                if lvl in level_counts:
-                    level_counts[lvl] += 1
-
-            st.markdown('<div style="margin-top:1.1rem"></div>', unsafe_allow_html=True)
-            chart_cols = st.columns([1, 1, 1])
-            bar_colors = {"Low": "#4F9B6E", "Medium": "#D9A441", "High": "#C1443D"}
-            for col, (level, count) in zip(chart_cols, level_counts.items()):
-                with col:
-                    max_count = max(level_counts.values()) or 1
-                    bar_width = int((count / max_count) * 100) if count else 4
-                    st.markdown(
-                        f'<div style="font-size:0.8rem;color:#9AA1AB;margin-bottom:0.25rem">'
-                        f'{level} risk · <span class="data-value">{count}</span></div>'
-                        f'<div style="background:rgba(255,255,255,0.06);border-radius:4px;height:10px;overflow:hidden">'
-                        f'<div style="background:{bar_colors[level]};width:{bar_width}%;height:100%"></div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-
-        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-
-        with st.expander("🔍 How this analysis was produced (agent-by-agent)"):
-            present_count = len([f for f in result["risk_flags"] if f.get("type", "present") == "present"])
-            missing_count = len([f for f in result["risk_flags"] if f.get("type") == "missing"])
-            benchmark_count = len(result.get("benchmarks", []))
-            clause_count = len(result["clauses"])
-
-            st.markdown(f"""
-1. **Document Classifier** → read the contract and identified it as **{result.get('document_type', 'Unknown')}**, which determined which checklist of critical provisions to apply later.
-2. **Clause Segmenter** → split the raw contract text into **{clause_count} distinct clauses** for individual analysis.
-3. **Risk Analyzer** → assessed each clause from the **"{position}"** perspective, producing **{present_count} present-clause risk flags**, and separately checked the type-specific checklist to find **{missing_count} missing-provision concerns**.
-4. **Benchmark Analyzer** → extracted **{benchmark_count} numeric provisions** (e.g. notice periods, liability caps) and compared them against industry-standard ranges.
-5. **Summarizer** → combined all of the above into the plain-English executive summary shown below.
-            """)
-
-        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-        st.subheader("Executive Summary")
-        st.write(result["summary"])
-
-        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-        st.subheader("Market Standard Benchmarks")
-        if benchmarks:
-            for row in benchmarks:
-                body = (
-                    f'<span class="data-value">{row["provision"]}</span> — '
-                    f'contract: <span class="data-value">{row["contract_value_days"]:.0f} days</span> · '
-                    f'standard: <span class="data-value">{row["standard_range"]}</span>'
-                )
-                redline_card(row["status"], row["status"], body, color_map=STATUS_COLORS)
-        else:
-            st.caption("No benchmarkable provisions (e.g. liability cap, notice periods) were detected in this contract.")
-
-        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-        st.subheader("Risk Flags — clauses present in the contract")
-        if present_flags:
-            for flag in sorted(present_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
-                score = flag.get("risk_score", "?")
-                tag = f'{flag["risk_level"].upper()} · {score}'
-                body = flag["reason"]
-                if flag.get("legal_reference"):
-                    body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
-                redline_card(tag, flag["risk_level"], body)
-                with st.expander("View clause"):
-                    st.write(flag["clause"])
-        else:
-            st.caption("No risky clauses flagged.")
-
-        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-        st.subheader("Missing Protections — not found anywhere in the contract")
-        if missing_flags:
-            st.caption("A protection that's silently absent can be riskier than one that's stated explicitly.")
-            for flag in sorted(missing_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
-                score = flag.get("risk_score", "?")
-                tag = f'{flag["risk_level"].upper()} · {score}'
-                body = f'<strong>{flag["clause"]}</strong> — {flag["reason"]}'
-                if flag.get("legal_reference"):
-                    body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
-                redline_card(tag, flag["risk_level"], body)
-        else:
-            st.caption("No missing-provision concerns detected.")
-
-        st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
-        st.subheader("All Clauses")
-        for i, clause in enumerate(result["clauses"], 1):
-            with st.expander(f"Clause {i}"):
-                st.write(clause)
+        render_results(result, position, uploaded_file.name)

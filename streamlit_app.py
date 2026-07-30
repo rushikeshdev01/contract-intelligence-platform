@@ -1,5 +1,8 @@
 import streamlit as st
 import requests
+import threading
+import time
+import plotly.graph_objects as go
 from services.report_generator import build_docx_report
 from services.scoring import compute_overall_risk
 
@@ -96,17 +99,27 @@ h1, h2, h3 {{
     line-height: 1.4;
 }}
 .metric-card {{
-    background: rgba(255,255,255,0.035);
+    background: linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
     border: 1px solid rgba(255,255,255,0.08);
-    border-top: 3px solid var(--accent, #D9A441);
-    border-radius: 8px;
-    padding: 0.9rem 1rem;
-    text-align: center;
+    border-left: 4px solid var(--accent, #D9A441);
+    border-radius: 10px;
+    padding: 1rem 1rem 0.9rem 1.1rem;
     height: 100%;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}}
+.metric-card:hover {{
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    border-left-color: var(--accent, #D9A441);
+}}
+.metric-card .metric-icon {{
+    font-size: 1.3rem;
+    margin-bottom: 0.35rem;
+    display: block;
 }}
 .metric-card .metric-value {{
     font-family: 'JetBrains Mono', monospace;
-    font-size: 1.9rem;
+    font-size: 2.1rem;
     font-weight: 500;
     color: #E9E6DD;
     line-height: 1.1;
@@ -118,8 +131,56 @@ h1, h2, h3 {{
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }}
+.risk-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    text-transform: uppercase;
+}}
+.risk-badge.badge-high {{ background: rgba(193,68,61,0.16); color: #E8837C; border: 1px solid rgba(193,68,61,0.4); }}
+.risk-badge.badge-medium {{ background: rgba(217,164,65,0.16); color: #E8C077; border: 1px solid rgba(217,164,65,0.4); }}
+.risk-badge.badge-low {{ background: rgba(79,155,110,0.16); color: #8FCBA6; border: 1px solid rgba(79,155,110,0.4); }}
+.upload-container {{
+    background: linear-gradient(160deg, rgba(217,164,65,0.05), rgba(255,255,255,0.02));
+    border: 1px solid rgba(217,164,65,0.25);
+    border-radius: 12px;
+    padding: 1.2rem 1.3rem 0.4rem 1.3rem;
+    margin-bottom: 1rem;
+}}
+.upload-container .upload-title {{
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.15rem;
+    color: #E9E6DD;
+    margin-bottom: 0.6rem;
+}}
 </style>
 """, unsafe_allow_html=True)
+
+
+def style_fig(fig, height=280):
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", color="#DCDAD3", size=12),
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=height,
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+    )
+    fig.update_xaxes(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="rgba(255,255,255,0.1)")
+    fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="rgba(255,255,255,0.1)")
+    return fig
+
+
+def risk_badge_html(level: str) -> str:
+    level_key = (level or "").lower()
+    icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(level_key, "⚪")
+    return f'<span class="risk-badge badge-{level_key}">{icon} {level_key.capitalize() or "Unknown"}</span>'
 
 
 def redline_card(tag: str, tag_color_key: str, body_html: str, color_map=RISK_COLORS):
@@ -133,9 +194,11 @@ def redline_card(tag: str, tag_color_key: str, body_html: str, color_map=RISK_CO
     )
 
 
-def metric_card(value: str, label: str, accent: str = "#D9A441"):
+def metric_card(value: str, label: str, accent: str = "#D9A441", icon: str = ""):
+    icon_html = f'<span class="metric-icon">{icon}</span>' if icon else ""
     st.markdown(
         f'<div class="metric-card" style="--accent:{accent}">'
+        f'{icon_html}'
         f'<div class="metric-value">{value}</div>'
         f'<div class="metric-label">{label}</div>'
         f'</div>',
@@ -286,39 +349,72 @@ def render_results(result: dict, position: str, filename: str, show_download: bo
 
     m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
-        metric_card(f"{overall_score}", f"Overall Risk · Grade {grade}", grade_accent)
+        metric_card(f"{overall_score}", f"Overall Risk · Grade {grade}", grade_accent, icon="📊")
     with m2:
-        metric_card(str(len(result["clauses"])), "Clauses Analyzed", "#5B6470")
+        metric_card(str(len(result["clauses"])), "Clauses Analyzed", "#5B6470", icon="📄")
     with m3:
-        metric_card(str(len(present_flags)), "Risk Flags", "#C1443D" if present_flags else "#4F9B6E")
+        metric_card(str(len(present_flags)), "Risk Flags", "#C1443D" if present_flags else "#4F9B6E", icon="⚠️")
     with m4:
-        metric_card(str(len(missing_flags)), "Missing Protections", "#C1443D" if missing_flags else "#4F9B6E")
+        metric_card(str(len(missing_flags)), "Missing Protections", "#C1443D" if missing_flags else "#4F9B6E", icon="🛡️")
     with m5:
-        metric_card(str(len(benchmarks)), "Benchmarks Checked", benchmark_accent)
+        metric_card(str(len(benchmarks)), "Benchmarks Checked", benchmark_accent, icon="📈")
 
-    # Risk distribution chart
-    if present_flags:
-        level_counts = {"Low": 0, "Medium": 0, "High": 0}
-        for f in present_flags:
+    # -----------------------------------------------------------------
+    # Charts — Risk Distribution, Risk Score Spread, Benchmark Comparison
+    # -----------------------------------------------------------------
+    st.markdown('<div style="margin-top:1.1rem"></div>', unsafe_allow_html=True)
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.markdown('<div class="eyebrow">Risk Distribution</div>', unsafe_allow_html=True)
+        if present_flags:
+            level_counts = {"Low": 0, "Medium": 0, "High": 0}
+            for f in present_flags:
+                lvl = f.get("risk_level", "").capitalize()
+                if lvl in level_counts:
+                    level_counts[lvl] += 1
+            fig = go.Figure(data=[go.Pie(
+                labels=list(level_counts.keys()),
+                values=list(level_counts.values()),
+                hole=0.55,
+                marker=dict(colors=["#4F9B6E", "#D9A441", "#C1443D"]),
+                textfont=dict(color="#12161C", size=13),
+            )])
+            st.plotly_chart(style_fig(fig, height=260), use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.caption("No present-clause risk flags to chart.")
+
+    with chart_col2:
+        st.markdown('<div class="eyebrow">Benchmark Comparison</div>', unsafe_allow_html=True)
+        if benchmarks:
+            status_color = {"green": "#4F9B6E", "yellow": "#D9A441", "red": "#C1443D"}
+            fig = go.Figure(data=[go.Bar(
+                y=[b["provision"] for b in benchmarks],
+                x=[b["contract_value_days"] for b in benchmarks],
+                orientation="h",
+                marker=dict(color=[status_color.get(b["status"], "#5B6470") for b in benchmarks]),
+                text=[f'{b["contract_value_days"]:.0f}d vs {b["standard_range"]}' for b in benchmarks],
+                textposition="auto",
+            )])
+            fig.update_xaxes(title="Days")
+            st.plotly_chart(style_fig(fig, height=260), use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.caption("No benchmarkable provisions detected in this contract.")
+
+    if missing_flags:
+        st.markdown('<div style="margin-top:0.6rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="eyebrow">Missing Protections by Severity</div>', unsafe_allow_html=True)
+        missing_level_counts = {"Low": 0, "Medium": 0, "High": 0}
+        for f in missing_flags:
             lvl = f.get("risk_level", "").capitalize()
-            if lvl in level_counts:
-                level_counts[lvl] += 1
-
-        st.markdown('<div style="margin-top:1.1rem"></div>', unsafe_allow_html=True)
-        chart_cols = st.columns([1, 1, 1])
-        bar_colors = {"Low": "#4F9B6E", "Medium": "#D9A441", "High": "#C1443D"}
-        for col, (level, count) in zip(chart_cols, level_counts.items()):
-            with col:
-                max_count = max(level_counts.values()) or 1
-                bar_width = int((count / max_count) * 100) if count else 4
-                st.markdown(
-                    f'<div style="font-size:0.8rem;color:#9AA1AB;margin-bottom:0.25rem">'
-                    f'{level} risk · <span class="data-value">{count}</span></div>'
-                    f'<div style="background:rgba(255,255,255,0.06);border-radius:4px;height:10px;overflow:hidden">'
-                    f'<div style="background:{bar_colors[level]};width:{bar_width}%;height:100%"></div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+            if lvl in missing_level_counts:
+                missing_level_counts[lvl] += 1
+        fig = go.Figure(data=[go.Bar(
+            x=list(missing_level_counts.keys()),
+            y=list(missing_level_counts.values()),
+            marker=dict(color=["#4F9B6E", "#D9A441", "#C1443D"]),
+        )])
+        st.plotly_chart(style_fig(fig, height=220), use_container_width=True, config={"displayModeBar": False})
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
@@ -355,16 +451,33 @@ def render_results(result: dict, position: str, filename: str, show_download: bo
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
     st.subheader("Risk Flags — clauses present in the contract")
-    if present_flags:
-        for flag in sorted(present_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
+
+    # Search & filter controls
+    fcol1, fcol2 = st.columns([2, 1])
+    with fcol1:
+        risk_search = st.text_input("🔍 Search risk flags", placeholder="Search by keyword in reason or clause...", key="risk_search")
+    with fcol2:
+        risk_level_filter = st.selectbox("Filter by level", ["All", "High", "Medium", "Low"], key="risk_level_filter")
+
+    filtered_present = present_flags
+    if risk_level_filter != "All":
+        filtered_present = [f for f in filtered_present if f.get("risk_level", "").lower() == risk_level_filter.lower()]
+    if risk_search:
+        q = risk_search.lower()
+        filtered_present = [f for f in filtered_present if q in f.get("reason", "").lower() or q in f.get("clause", "").lower()]
+
+    if filtered_present:
+        for flag in sorted(filtered_present, key=lambda f: f.get("risk_score", 50), reverse=True):
             score = flag.get("risk_score", "?")
-            tag = f'{flag["risk_level"].upper()} · {score}'
-            body = flag["reason"]
+            badge = risk_badge_html(flag["risk_level"])
+            body = f'{badge} <span class="data-value" style="margin-left:0.4rem">{score}</span><br>{flag["reason"]}'
             if flag.get("legal_reference"):
                 body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
-            redline_card(tag, flag["risk_level"], body)
+            redline_card("", flag["risk_level"], body)
             with st.expander("View clause"):
                 st.write(flag["clause"])
+    elif present_flags:
+        st.caption("No risk flags match your search/filter.")
     else:
         st.caption("No risky clauses flagged.")
 
@@ -374,17 +487,26 @@ def render_results(result: dict, position: str, filename: str, show_download: bo
         st.caption("A protection that's silently absent can be riskier than one that's stated explicitly.")
         for flag in sorted(missing_flags, key=lambda f: f.get("risk_score", 50), reverse=True):
             score = flag.get("risk_score", "?")
-            tag = f'{flag["risk_level"].upper()} · {score}'
-            body = f'<strong>{flag["clause"]}</strong> — {flag["reason"]}'
+            badge = risk_badge_html(flag["risk_level"])
+            body = f'{badge} <span class="data-value" style="margin-left:0.4rem">{score}</span><br><strong>{flag["clause"]}</strong> — {flag["reason"]}'
             if flag.get("legal_reference"):
                 body += f'<br><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:#9AA1AB">§ {flag["legal_reference"]}</span>'
-            redline_card(tag, flag["risk_level"], body)
+            redline_card("", flag["risk_level"], body)
     else:
         st.caption("No missing-provision concerns detected.")
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
     st.subheader("All Clauses")
+    clause_search = st.text_input("🔍 Search clauses", placeholder="Search clause text...", key="clause_search")
+    clauses_to_show = result["clauses"]
+    if clause_search:
+        q = clause_search.lower()
+        clauses_to_show = [c for c in result["clauses"] if q in c.lower()]
+        if not clauses_to_show:
+            st.caption("No clauses match your search.")
     for i, clause in enumerate(result["clauses"], 1):
+        if clause not in clauses_to_show:
+            continue
         with st.expander(f"Clause {i}"):
             st.write(clause)
 
@@ -404,7 +526,14 @@ if st.session_state.get("viewed_history"):
 # ---------------------------------------------------------------------------
 # Upload + position
 # ---------------------------------------------------------------------------
-uploaded_file = st.file_uploader("Upload a contract", type=["pdf", "docx"])
+with st.container(border=True):
+    st.markdown('<div class="upload-title">📄 Upload Contract</div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader(
+        "Drag & drop or browse files",
+        type=["pdf", "docx"],
+        label_visibility="collapsed",
+    )
+    st.caption("PDF • DOCX • Max 200MB")
 
 position = st.selectbox(
     "Which party are you in this contract?",
@@ -416,16 +545,49 @@ position = st.selectbox(
 
 if uploaded_file is not None:
     if st.button("Analyze Contract", type="primary"):
-        with st.spinner("Running agent pipeline (classify → segment → risk → benchmark → summarize)..."):
-            files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
-            data = {"position": position}
+        AGENT_STEPS = [
+            ("🏷️", "Document Classifier", "Identifying contract type..."),
+            ("✂️", "Clause Segmenter", "Splitting into individual clauses..."),
+            ("⚠️", "Risk Analyzer", "Assessing risk from your position..."),
+            ("📊", "Benchmark Analyzer", "Comparing against market standards..."),
+            ("📝", "Summarizer", "Writing the executive summary..."),
+        ]
+
+        # Run the actual backend call in a background thread so the UI can
+        # animate through the agent steps while waiting for the real response.
+        request_result = {}
+
+        def _do_request():
             try:
-                response = requests.post(API_URL, files=files, data=data, timeout=300)
-                response.raise_for_status()
-                result = response.json()
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
+                data = {"position": position}
+                resp = requests.post(API_URL, files=files, data=data, timeout=300)
+                resp.raise_for_status()
+                request_result["data"] = resp.json()
             except requests.exceptions.RequestException as e:
-                st.error(f"Failed to reach backend: {e}")
+                request_result["error"] = str(e)
+
+        thread = threading.Thread(target=_do_request)
+        thread.start()
+
+        with st.status("Running agent pipeline...", expanded=True) as status:
+            step_placeholder = st.empty()
+            step_index = 0
+            while thread.is_alive():
+                icon, name, desc = AGENT_STEPS[step_index % len(AGENT_STEPS)]
+                step_placeholder.markdown(f"{icon} **{name}** — {desc}")
+                time.sleep(1.4)
+                step_index += 1
+            thread.join()
+
+            if "error" in request_result:
+                status.update(label="Analysis failed", state="error", expanded=True)
+                st.error(f"Failed to reach backend: {request_result['error']}")
                 st.stop()
 
+            step_placeholder.markdown("✅ **All agents complete**")
+            status.update(label="Analysis complete", state="complete", expanded=False)
+
+        result = request_result["data"]
         st.success("Analysis complete")
         render_results(result, position, uploaded_file.name)

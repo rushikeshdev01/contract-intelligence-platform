@@ -1,11 +1,13 @@
 import os
 import shutil
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from pydantic import BaseModel
 
 from services.extraction_service import extract_text
 from services.scoring import compute_overall_risk
 from services.database import init_db, save_analysis, get_recent_analyses, get_analysis_by_id
 from agents.graph import run_pipeline
+from agents.chat_agent import answer_question
 
 app = FastAPI(title="Contract Intelligence API")
 
@@ -13,6 +15,13 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 init_db()
+
+
+class AskRequest(BaseModel):
+    clauses: list[str]
+    question: str
+    document_type: str = ""
+    user_position: str = ""
 
 
 @app.get("/")
@@ -70,3 +79,11 @@ def history_detail(analysis_id: int):
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return analysis
+
+
+@app.post("/ask")
+def ask(req: AskRequest):
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+    answer = answer_question(req.clauses, req.question, req.document_type, req.user_position)
+    return {"answer": answer}
